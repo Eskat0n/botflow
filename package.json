@@ -1,0 +1,20 @@
+{
+  "name": "botflow",
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": "Timur Rakhmatillaev <muyou.prj@gmail.com>",
+  "homepage": "https://github.com/eskat0n/botflow#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/eskat0n/botflow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/eskat0n/botflow/issues"
+  },
+  "main": "botflow.js",
+  "dependencies": {
+    "mysql2": "^1.5.2",
+    "sequelize": "^4.33.4",
+    "telegraf": "^3.18.0"
+  }
+}
