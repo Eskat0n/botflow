@@ -5,9 +5,9 @@ class InputValidator {
         this.config = config;
     }
 
-    isValid(input) {
+    async isValid(input) {
         if (this.config instanceof Function) {
-            return this.config(input);
+            return await this.config(input);
         }
         else if (this.config instanceof RegExp) {
             return this.config.test(input);
@@ -83,7 +83,7 @@ class FlowController {
 
             if (flow.stateDef.input) {
                 let isValid = flow.stateDef.input.validate
-                    ? new InputValidator(flow.stateDef.input.validate).isValid(messageText)
+                    ? await new InputValidator(flow.stateDef.input.validate).isValid(messageText)
                     : true;
 
                 if (isValid) {
