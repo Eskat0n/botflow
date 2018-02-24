@@ -50,7 +50,7 @@ class TelegramConversation {
         return this.ctx.update['callback_query']['data']
     }
 
-    get nativeCtx() {
+    get native() {
         return this.ctx;
     }
 }
@@ -101,7 +101,7 @@ class TelegramAdapter extends AdapterBase {
         await this.bot.sendMessageHTML(recipient, msg, mapExtra(extra));
     }
 
-    get nativeBot() {
+    get native() {
         return this.bot;
     }
 }
