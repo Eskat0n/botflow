@@ -1,157 +1,258 @@
 const Stack = require('./Stack');
 
-class InputValidator {
-    constructor(config) {
-        this.config = config;
-    }
-
-    async isValid(input) {
-        if (this.config instanceof Function) {
-            return await this.config(input);
-        }
-        else if (this.config instanceof RegExp) {
-            return this.config.test(input);
-        }
-
-        return false;
-    }
-}
-
 class FlowController {
-    constructor(bot) {
-        this.storage = {};
-        this.bot = bot;
+    constructor() {
+        this.userContext = {};
+        this.storage = null;
+        this.adapters = [];
+    }
+
+    useStorage(storage) {
+        this.storage = storage;
+    }
+
+    useAdapter(adapter) {
+        this.adapters.push(adapter);
     }
 
     start(flowClass) {
+        this.storage.init();
         this.flowClass = flowClass;
 
-        this.bot.catch(err => {
-            console.log(err);
-        });
+        this.adapters.forEach(adapter => {
+            adapter.onError(err => {
+                console.log(err);
+            });
 
-        this.bot.start(ctx => {
-            let flow = new this.flowClass();
+            adapter.onStart(async (conv, peer) => {
+                let flow = new this.flowClass();
+                this.pushFlow(peer.id, flow);
 
-            this.pushFlow(ctx.from.id, flow);
+                let user = await this.storage.User.findOne({
+                    where: {peerId: peer.id}
+                });
 
-            return flow.start(ctx);
-        });
+                if (!user) {
+                    user = await this.storage.User.create({
+                        adapter: adapter.constructor.name,
+                        peerId: peer.id,
+                        userName: peer.userName,
+                        firstName: peer.firstName,
+                        lastName: peer.lastName,
+                        url: peer.url,
+                        connectedAt: new Date(),
+                        activeAt: new Date()
+                    });
 
-        this.bot.hears(/.+/, async ctx => {
-            let flow = this.peekFlow(ctx.from.id);
-            if (!flow) return;
+                    let account = await this.storage.Account.create({
+                        userId: user.get('id'),
+                        balance: 0
+                    });
+                }
 
-            let messageText = ctx.message.text;
-            if (flow.stateDef.commands) {
-                let command = flow.stateDef.commands
-                    .find(cmd => cmd.name === messageText);
+                await flow.start({
+                    user,
+                    conv,
+                    adapter,
+                    storage: this.storage
+                });
 
-                if (command) {
-                    if (command.start) {
-                        let flow = new command.start();
+                user.activeAt = new Date();
+                await user.save();
+            });
 
-                        this.pushFlow(ctx.from.id, flow);
-                        await flow.start(ctx);
-                    }
-                    else if (command.to) {
-                        await flow.setState(ctx, command.to, {command});
+            adapter.onText(async (conv, text, peer) => {
+                let flow = this.peekFlow(peer.id);
+                if (!flow) return;
 
-                        if (flow.stateDef.start) {
-                            let newFlow = new flow.stateDef.start();
+                console.log(`Using flow ${flow.constructor.name} in state ${flow.state.id} for peer #${peer.id}`);
 
-                            this.pushFlow(ctx.from.id, newFlow);
-                            await newFlow.start(ctx);
+                let user = await this.storage.User.findOne({
+                    where: {peerId: peer.id}
+                });
+
+                if (flow.state.commands) {
+                    let transition = flow.state.commands
+                        .find(cmd => cmd.id === text || cmd.text === text);
+
+                    if (transition) {
+                        if (transition.start) {
+                            let flow = new transition.start();
+
+                            console.log(`Pushing new flow ${flow.constructor.name} for peer #${peer.id}`);
+
+                            this.pushFlow(peer.id, flow);
+                            await flow.start({
+                                user,
+                                conv,
+                                adapter,
+                                storage: this.storage
+                            });
                         }
-                        else if (flow.stateDef.goBack) {
-                            this.popFlow(ctx.from.id);
-                            let newFlow = this.peekFlow(ctx.from.id);
+                        else if (transition.to) {
+                            await flow.setState(transition.to, {
+                                user,
+                                conv,
+                                adapter,
+                                storage: this.storage,
+                                transition
+                            });
 
-                            await newFlow.start(ctx);
+                            if (flow.state.start) {
+                                let newFlow = new flow.state.start();
+
+                                this.pushFlow(peer.id, newFlow);
+                                await newFlow.start({
+                                    user,
+                                    conv,
+                                    adapter,
+                                    storage: this.storage
+                                });
+                            }
+                            else if (flow.state.goBack) {
+                                this.popFlow(peer.id);
+                                let newFlow = this.peekFlow(peer.id);
+
+                                await newFlow.start({
+                                    user,
+                                    conv,
+                                    adapter,
+                                    storage: this.storage
+                                });
+                            }
+                        }
+                        else if (transition.goBack) {
+                            this.popFlow(peer.id);
+                            let newFlow = this.peekFlow(peer.id);
+
+                            await newFlow.start({
+                                user,
+                                conv,
+                                adapter,
+                                storage: this.storage
+                            });
                         }
                     }
-                    else if (command.goBack) {
-                        this.popFlow(ctx.from.id);
-                        let newFlow = this.peekFlow(ctx.from.id);
-
-                        await newFlow.start(ctx);
-                    }
-
-                    return;
                 }
-            }
+                else if (flow.state.input) {
+                    let isValid = flow.state.input.validate
+                        ? await flow.state.input.validate(text)
+                        : true;
 
-            if (flow.stateDef.input) {
-                let isValid = flow.stateDef.input.validate
-                    ? await new InputValidator(flow.stateDef.input.validate).isValid(messageText)
-                    : true;
+                    if (isValid) {
+                        await flow.setState(flow.state.input.to, {
+                            user,
+                            conv,
+                            adapter,
+                            storage: this.storage,
+                            transition: {
+                                ...flow.state.input,
+                                text
+                            }
+                        });
 
-                if (isValid) {
-                    await flow.setState(ctx, flow.stateDef.input.to, {input: messageText});
+                        if (flow.state.start) {
+                            let newFlow = new flow.state.start();
 
-                    if (flow.stateDef.start) {
-                        let newFlow = new flow.stateDef.start();
+                            this.pushFlow(peer.id, newFlow);
+                            await newFlow.start(conv);
+                        }
+                        else if (flow.state.goBack) {
+                            this.popFlow(peer.id);
+                            let newFlow = this.peekFlow(peer.id);
 
-                        this.pushFlow(ctx.from.id, newFlow);
-                        await newFlow.start(ctx);
-                    }
-                    else if (flow.stateDef.goBack) {
-                        this.popFlow(ctx.from.id);
-                        let newFlow = this.peekFlow(ctx.from.id);
-
-                        await newFlow.start(ctx);
-                    }
-                } else {
-                    let text = flow.stateDef.input.validationMessage
-                        ? flow.stateDef.input.validationMessage
-                        : 'Введённое значение имеет неверный формат';
-
-                    await flow.reply(ctx, text);
-                }
-            }
-        });
-
-        this.bot.action(/.+/, async ctx => {
-            let flow = this.peekFlow(ctx.from.id);
-            if (!flow) return;
-
-            let actionId = ctx.update['callback_query']['data'];
-            if (flow.stateDef.actions) {
-                let action = flow.stateDef.actions
-                    .find((a, i) => actionId === `${flow.stateId}-${i}`);
-
-                if (action && action.callback)
-                    await action.callback({action}, ctx);
-
-                if (action && action.start) {
-                    let flow = new action.start();
-
-                    this.pushFlow(ctx.from.id, flow);
-                    await flow.start(ctx);
-                }
-                else if (action && action.to) {
-                    await flow.setState(ctx, action.to, {action});
-
-                    if (flow.stateDef.start) {
-                        let newFlow = new flow.stateDef.start();
-
-                        this.pushFlow(ctx.from.id, newFlow);
-                        await newFlow.start(ctx);
-                    }
-                    else if (flow.stateDef.goBack) {
-                        this.popFlow(ctx.from.id);
-                        let newFlow = this.peekFlow(ctx.from.id);
-
-                        await newFlow.start(ctx);
+                            await newFlow.start(conv);
+                        }
+                    } else {
+                        await conv.reply(
+                            flow.state.input.validationMessage ||
+                            'Введённое значение имеет неверный формат');
                     }
                 }
-                else if (action && action.goBack) {
-                    this.popFlow(ctx.from.id);
-                    let newFlow = this.peekFlow(ctx.from.id);
 
-                    await newFlow.start(ctx);
+                user.activeAt = new Date();
+                await user.save();
+            });
+
+            adapter.onAction(async (conv, action, peer) => {
+                let flow = this.peekFlow(peer.id);
+                if (!flow) return;
+
+                console.log(`Using flow ${flow.constructor.name} in state ${flow.state.id} for peer #${peer.id}`);
+
+                let user = await this.storage.User.findOne({
+                    where: {peerId: peer.id}
+                });
+
+                let actionId = action;
+                if (flow.state.actions) {
+                    let transition = flow.state.actions
+                        .find((a, i) => a.id === actionId);
+
+                    if (transition && transition.callback)
+                        await transition.callback({action: transition}, conv);
+
+                    if (transition && transition.start) {
+                        let flow = new transition.start();
+
+                        this.pushFlow(peer.id, flow);
+                        await flow.start({
+                            user,
+                            conv,
+                            adapter,
+                            storage: this.storage
+                        });
+                    }
+                    else if (transition && transition.to) {
+                        await flow.setState(transition.to, {
+                            user,
+                            conv,
+                            adapter,
+                            storage: this.storage,
+                            transition
+                        });
+
+                        if (flow.state.start) {
+                            let newFlow = new flow.state.start();
+
+                            this.pushFlow(peer.id, newFlow);
+                            await newFlow.start({
+                                user,
+                                conv,
+                                adapter,
+                                storage: this.storage
+                            });
+                        }
+                        else if (flow.state.goBack) {
+                            this.popFlow(peer.id);
+                            let newFlow = this.peekFlow(peer.id);
+
+                            await newFlow.start({
+                                user,
+                                conv,
+                                adapter,
+                                storage: this.storage
+                            });
+                        }
+                    }
+                    else if (transition && transition.goBack) {
+                        this.popFlow(peer.id);
+                        let newFlow = this.peekFlow(peer.id);
+
+                        await newFlow.start({
+                            user,
+                            conv,
+                            adapter,
+                            storage: this.storage
+                        });
+                    }
                 }
-            }
+
+                user.activeAt = new Date();
+                await user.save();
+            });
+
+            adapter.connect();
         });
     }
 

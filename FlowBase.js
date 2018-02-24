@@ -1,48 +1,49 @@
-const Extra = require('telegraf/extra');
 const Markup = require('telegraf/markup');
 const {capitalize} = require('./utils');
 
 class FlowBase {
-    constructor(def) {
-        this.def = def;
-        this.stateId = 'start';
-
-        this.def.states.forEach(s => {
-            if (!this[`get${capitalize(s.id)}Text`])
-                this[`get${capitalize(s.id)}Text`] = () => s.text;
-        })
+    constructor(states) {
+        this.states = states.map(state => new state());
+        this.state = this.states.find(sc => sc.id === 'start');
     }
 
-    async start(botCtx) {
-        if (this.onStart)
-            await this.onStart(botCtx);
-        await this.reply(botCtx);
+    async start(flowCtx) {
+        let stateCtx = {
+            ...flowCtx,
+            flow: this,
+            prevState: null,
+            nextState: this.state
+        };
+
+        await this.state.enter(stateCtx, flowCtx.conv, flowCtx.storage);
     }
 
-    async setState(botCtx, stateId, flowCtx) {
-        console.log(`Started transiting ${this.constructor.name} from ${this.stateId} to ${stateId}`);
+    async setState(stateId, flowCtx) {
+        let prevState = this.state;
+        let nextState = this.states.find(sc => sc.id === stateId);
+        let stateCtx = {
+            ...flowCtx,
+            flow: this,
+            prevState,
+            nextState
+        };
 
-        let leaveStateHandler = this[`onLeave${capitalize(this.stateId)}`];
-        if (leaveStateHandler) {
-            let result = await leaveStateHandler.call(this, flowCtx, botCtx);
-            if (result === false) {
-                console.log(`Leave handler blocked transition to state '${stateId}'`);
-                return;
-            }
+        console.log(`Started transiting ${this.constructor.name} from ${prevState.id} to ${nextState.id}`);
+
+        let leaveResult = await prevState.leave(stateCtx, flowCtx.conv, flowCtx.storage);
+        if (leaveResult === false) {
+            console.log(`Leave handler blocked transition to state '${stateId}'`);
+            return;
         }
 
-        this.stateId = stateId;
+        this.state = nextState;
 
-        let stateHandler = this[`on${capitalize(this.stateId)}`];
-        if (stateHandler)
-            stateHandler.call(this, flowCtx, botCtx);
+        let enterResult = await nextState.enter(stateCtx, flowCtx.conv, flowCtx.storage);
 
-        await this.reply(botCtx);
+        console.log(`Completed transiting ${this.constructor.name} to ${nextState.id}`);
 
-        console.log(`Completed transiting ${this.constructor.name} to ${this.stateId}`);
-
-        if (this.stateDef.to)
-            await this.setState(botCtx, this.stateDef.to, flowCtx);
+        if (this.state.to)
+            await this.setState(this.state.to, flowCtx);
     }
 
     async reply(botCtx, textOverride = null) {
@@ -81,18 +82,6 @@ class FlowBase {
 
         if (this.stateDef.afterReply)
             this.stateDef.afterReply(botCtx, text);
-    }
-
-    getStateDef(stateId) {
-        return this.def.states.find(s => s.id === stateId);
-    }
-
-    getStateText(botCtx) {
-        return this[`get${capitalize(this.stateId)}Text`](botCtx);
-    }
-
-    get stateDef() {
-        return this.def.states.find(s => s.id === this.stateId);
     }
 }
 
