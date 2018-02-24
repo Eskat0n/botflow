@@ -14,6 +14,7 @@
   "main": "botflow.js",
   "dependencies": {
     "mysql2": "^1.5.2",
+    "node-vk-bot-api": "^1.2.0",
     "sequelize": "^4.33.4",
     "telegraf": "^3.18.0"
   }
