@@ -5,6 +5,7 @@ class FlowController {
         this.userContext = {};
         this.storage = null;
         this.adapters = [];
+        this.errorHandler = error => console.log(error);
     }
 
     useStorage(storage) {
@@ -15,13 +16,17 @@ class FlowController {
         this.adapters.push(adapter);
     }
 
+    userErrorHandler(errorHandler) {
+        this.errorHandler = errorHandler;
+    }
+
     start(flowClass) {
         this.storage.init();
         this.flowClass = flowClass;
 
         this.adapters.forEach(adapter => {
-            adapter.onError(err => {
-                console.log(err);
+            adapter.onError(async error => {
+                await this.errorHandler(error);
             });
 
             adapter.onStart(async (conv, peer) => {
