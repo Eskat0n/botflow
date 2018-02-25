@@ -33,6 +33,12 @@ class FlowController {
                 let flow = new this.flowClass();
                 this.pushFlow(peer.id, flow);
 
+                let referrerUser = conv.params.length > 0
+                    ? await this.storage.User.findOne({
+                        where: {peerId: parseInt(conv.params[0])}
+                    })
+                    : null;
+
                 let user = await this.storage.User.findOne({
                     where: {peerId: peer.id}
                 });

@@ -50,6 +50,10 @@ class TelegramConversation {
         return this.ctx.update['callback_query']['data']
     }
 
+    get params() {
+        return this.ctx.update.message.text.split(' ').splice(1);
+    }
+
     get native() {
         return this.ctx;
     }
