@@ -1,6 +1,6 @@
 const MySQLStorage = require('../src/MySQLStorage');
 const TelegramAdapter = require('../src/adapters/TelegramAdapter');
-const {FlowController, FlowBase, StateBase} = require('../botflow');
+const {FlowController, FlowBase, StateBase, createState} = require('../botflow');
 
 class TopupFlow extends  FlowBase {
     constructor() {
@@ -63,12 +63,9 @@ class OrderFlow extends FlowBase {
 class RootFlow extends FlowBase {
     constructor() {
         super([
-            class extends StateBase {
-                constructor() {
-                    super('start');
-                }
-
-                async enter(ctx, conv, storage) {
+            createState({
+                id: 'start',
+                enter: async function (ctx, conv, storage) {
                     this.clearRegistrations();
 
                     let account = await storage.Account.findOne({
@@ -84,7 +81,7 @@ class RootFlow extends FlowBase {
 
                     await conv.reply('Выберите пункт меню:', commands);
                 }
-            },
+            }),
             class extends StateBase {
                 constructor() {
                     super('referrals');
