@@ -54,11 +54,6 @@ class FlowController {
                         connectedAt: new Date(),
                         activeAt: new Date()
                     });
-
-                    let account = await this.storage.Account.create({
-                        userId: user.get('id'),
-                        balance: 0
-                    });
                 }
 
                 await flow.start({
