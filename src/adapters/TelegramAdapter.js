@@ -14,7 +14,7 @@ const mapExtra = obj => {
         return Markup
             .inlineKeyboard(obj.actions.map(x => x.url
                 ? Markup.urlButton(x.text, x.url)
-                : Markup.callbackButton(x.text, x.id)))
+                : Markup.callbackButton(x.text, x.id)), {columns: 2})
             .extra()
 };
 
