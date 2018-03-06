@@ -161,13 +161,23 @@ class FlowController {
                             let newFlow = new flow.state.start();
 
                             this.pushFlow(peer.id, newFlow);
-                            await newFlow.start(conv);
+                            await newFlow.start({
+                                user,
+                                conv,
+                                adapter,
+                                storage: this.storage
+                            });
                         }
                         else if (flow.state.goBack) {
                             this.popFlow(peer.id);
                             let newFlow = this.peekFlow(peer.id);
 
-                            await newFlow.start(conv);
+                            await newFlow.start({
+                                user,
+                                conv,
+                                adapter,
+                                storage: this.storage
+                            });
                         }
                     } else {
                         await conv.reply(
